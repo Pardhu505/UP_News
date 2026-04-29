@@ -540,37 +540,100 @@ if not st.session_state.df.empty:
 
     labelled = df[df["sentiment"] != "—"]
     if not labelled.empty:
-        col_pie, col_bar = st.columns(2)
-        with col_pie:
+        pie_col, _ = st.columns([1, 1])
+        with pie_col:
             pc = labelled["sentiment"].value_counts().reindex(
-                ["Positive","Neutral","Negative"], fill_value=0)
+                ["Positive", "Neutral", "Negative"], fill_value=0)
             pie = px.pie(
                 names=pc.index, values=pc.values,
                 title="Sentiment Distribution (labelled articles)",
                 hole=0.55, color=pc.index,
                 color_discrete_map={"Positive":"#43A047","Neutral":"#78909C","Negative":"#E53935"},
             )
-            pie.update_traces(textinfo="percent+label")
+            pie.update_traces(
+                textinfo="percent+label",
+                textfont=dict(size=14, family="Sora, sans-serif", color="white"),
+                insidetextfont=dict(size=14, family="Sora, sans-serif", color="white"),
+            )
+            pie.update_layout(
+                legend=dict(font=dict(size=13, family="Sora, sans-serif")),
+                title_font=dict(size=15, family="Sora, sans-serif"),
+            )
             st.plotly_chart(pie, use_container_width=True)
-        with col_bar:
-            lc = df["language"].value_counts().reset_index()
-            lc.columns = ["Language","Count"]
-            bar = px.bar(lc, x="Language", y="Count", title="Articles by Language",
-                         color="Language",
-                         color_discrete_sequence=["#1565C0","#E65100","#2E7D32"])
-            bar.update_layout(showlegend=False)
-            st.plotly_chart(bar, use_container_width=True)
     else:
         st.info("Tag articles with a sentiment above to see the distribution chart.")
 
-    if len(st.session_state.keywords) > 1:
-        kc = df["query"].value_counts().reset_index()
-        kc.columns = ["Keyword","Count"]
-        st.plotly_chart(
-            px.bar(kc, x="Keyword", y="Count", title="Articles per Keyword",
-                   color="Count", color_continuous_scale="Blues"),
-            use_container_width=True,
+    # ── Trending Topics ───────────────────────────────────────────
+    # Extract keywords from titles using simple word frequency
+    import re
+    from collections import Counter
+
+    STOPWORDS = {
+        "the","a","an","and","or","but","in","on","at","to","for","of","with",
+        "is","was","are","were","be","been","being","have","has","had","do","does",
+        "did","will","would","could","should","may","might","shall","can","need",
+        "this","that","these","those","it","its","he","she","they","we","you","i",
+        "his","her","their","our","your","my","by","from","as","up","about","into",
+        "through","during","after","before","over","under","again","further","then",
+        "once","here","there","when","where","why","how","all","both","each","few",
+        "more","most","other","some","such","no","not","only","own","same","so",
+        "than","too","very","just","भारत","india","news","says","say","said",
+        "also","new","amid","after","latest","amid","amid","amid","amid",
+    }
+
+    TOPIC_MAP = {
+        "yogi": "Yogi Adityanath", "adityanath": "Yogi Adityanath",
+        "akhilesh": "Akhilesh Yadav", "yadav": "Akhilesh Yadav",
+        "bjp": "BJP", "sp": "Samajwadi Party", "samajwadi": "Samajwadi Party",
+        "modi": "Modi", "congress": "Congress", "rahul": "Rahul Gandhi",
+        "up": "Uttar Pradesh", "election": "Elections", "elections": "Elections",
+        "development": "Development", "scheme": "Government Scheme",
+        "crime": "Crime", "communal": "Communal", "riot": "Communal",
+        "farmer": "Farmers", "farmers": "Farmers", "agriculture": "Farmers",
+        "police": "Law & Order", "arrest": "Law & Order",
+        "hospital": "Health", "health": "Health",
+        "road": "Infrastructure", "expressway": "Infrastructure",
+        "economy": "Economy", "inflation": "Economy",
+        "education": "Education", "school": "Education",
+    }
+
+    all_words = []
+    for title in df["title"].dropna():
+        words = re.findall(r"[a-zA-Z]{3,}", title.lower())
+        for w in words:
+            if w not in STOPWORDS:
+                mapped = TOPIC_MAP.get(w)
+                if mapped:
+                    all_words.append(mapped)
+                else:
+                    all_words.append(w.capitalize())
+
+    if all_words:
+        topic_counts = Counter(all_words).most_common(10)
+        topics_df = pd.DataFrame(topic_counts, columns=["Topic", "Count"])
+
+        trending_fig = px.bar(
+            topics_df, x="Topic", y="Count",
+            title="Trending Topics",
+            text="Count",
+            color_discrete_sequence=["#1B5E20"],
         )
+        trending_fig.update_traces(
+            textposition="inside",
+            textfont=dict(size=13, color="white", family="Sora, sans-serif"),
+            marker_color="#1B5E20",
+        )
+        trending_fig.update_layout(
+            xaxis_title="", yaxis_title="Mentions",
+            title_font=dict(size=16, family="Sora, sans-serif"),
+            xaxis_tickfont=dict(size=12, family="Sora, sans-serif"),
+            plot_bgcolor="white",
+            yaxis=dict(showgrid=True, gridcolor="#f0f0f0"),
+            showlegend=False,
+        )
+        st.plotly_chart(trending_fig, use_container_width=True)
+    else:
+        st.info("Trending topics will appear once articles are loaded.")
 
 elif st.session_state.has_fetched:
     st.warning("No articles found for the selected filters and date range.")
