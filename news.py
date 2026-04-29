@@ -2,44 +2,51 @@ import streamlit as st
 from gnews import GNews
 import pandas as pd
 from textblob import TextBlob
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import plotly.express as px
-import io
 import time
 import random
-import textblob
 import nltk
+
 nltk.download("punkt", quiet=True)
 nltk.download("brown", quiet=True)
 nltk.download("wordnet", quiet=True)
 nltk.download("averaged_perceptron_tagger", quiet=True)
 nltk.download("conll2000", quiet=True)
 nltk.download("movie_reviews", quiet=True)
+
 st.set_page_config(page_title="UP News Search & Analysis", layout="wide")
 
 # ===================== Custom CSS =====================
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap');
+
+    html, body, [class*="css"] { font-family: 'Sora', sans-serif; }
+
     .news-table {
-        font-family: 'Segoe UI', sans-serif;
+        font-family: 'Sora', sans-serif;
         border-collapse: collapse;
         width: 100%;
+        font-size: 13.5px;
     }
     .news-table td, .news-table th {
-        border: 1px solid #ddd;
-        padding: 8px;
+        border: 1px solid #e0e0e0;
+        padding: 9px 11px;
         vertical-align: top;
     }
-    .news-table tr:nth-child(even) { background-color: #f2f2f2; }
-    .news-table tr:hover { background-color: #ddd; }
+    .news-table tr:nth-child(even) { background-color: #f7f9fc; }
+    .news-table tr:hover { background-color: #eaf1fb; }
     .news-table th {
         padding-top: 12px;
         padding-bottom: 12px;
         text-align: left;
-        background-color: #4CAF50;
+        background: linear-gradient(90deg, #1565C0, #0288D1);
         color: white;
+        letter-spacing: 0.03em;
     }
+
     .metrics-container {
         display: flex;
         justify-content: space-between;
@@ -51,242 +58,347 @@ st.markdown(
         flex: 1;
         min-width: 160px;
         padding: 15px 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
         text-align: center;
         color: white;
     }
-    .metric-positive { background: linear-gradient(135deg, #4CAF50, #2E7D32); }
-    .metric-neutral  { background: linear-gradient(135deg, #78909C, #455A64); }
-    .metric-negative { background: linear-gradient(135deg, #F44336, #C62828); }
-    .metric-non      { background: linear-gradient(135deg, #607D8B, #37474F); }
-    .metric-total    { background: linear-gradient(135deg, #3F51B5, #1A237E); }
-    .metric-value { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-    .metric-label { font-size: 14px; opacity: 0.9; }
+    .metric-positive { background: linear-gradient(135deg, #43A047, #1B5E20); }
+    .metric-neutral  { background: linear-gradient(135deg, #78909C, #37474F); }
+    .metric-negative { background: linear-gradient(135deg, #E53935, #B71C1C); }
+    .metric-non      { background: linear-gradient(135deg, #8D6E63, #4E342E); }
+    .metric-total    { background: linear-gradient(135deg, #1565C0, #0D47A1); }
+    .metric-value { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .metric-label { font-size: 13px; opacity: 0.88; }
+
+    .keyword-tag {
+        display: inline-block;
+        background: #e3f2fd;
+        color: #1565C0;
+        border: 1px solid #90caf9;
+        border-radius: 20px;
+        padding: 3px 12px;
+        margin: 3px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .page-header {
+        text-align: center;
+        color: #fff;
+        background: linear-gradient(90deg, #1565C0, #0288D1);
+        padding: 14px 20px;
+        border-radius: 12px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        margin-bottom: 20px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.markdown(
-    """
-    <h2 style='text-align:center;color:#fff;background:#262730;padding:10px;border-radius:10px;'>
-    📰 UP News Search and Analysis Portal
-    </h2>
-    """,
+    "<div class='page-header'>📰 UP News Search and Analysis Portal</div>",
     unsafe_allow_html=True,
 )
 
-# ===================== Fixed Queries =====================
-FIXED_QUERIES = [
-    "Akhilesh Yadav",
-]
-
-# Fixed: India + 3 languages
+# ===================== Constants =====================
 LANGS = [("English", "en"), ("Hindi", "hi"), ("Marathi", "mr")]
 COUNTRY = "IN"
+MAX_RESULTS_PER_QUERY = 100   # high ceiling — fetch as many as GNews allows
+
 
 # ===================== Session State =====================
-if "all_results" not in st.session_state:
-    st.session_state.all_results = []
-if "seen_keys" not in st.session_state:
-    st.session_state.seen_keys = set()
-if "df" not in st.session_state:
-    st.session_state.df = pd.DataFrame()
-if "sources_list" not in st.session_state:
-    st.session_state.sources_list = []
-if "selected_sources" not in st.session_state:
-    st.session_state.selected_sources = []
-if "has_fetched" not in st.session_state:
-    st.session_state.has_fetched = False
+defaults = {
+    "all_results": [],
+    "seen_keys": set(),
+    "df": pd.DataFrame(),
+    "sources_list": [],
+    "selected_sources": [],
+    "has_fetched": False,
+    "keywords": ["Akhilesh Yadav"],   # default seed keyword
+    "new_kw_input": "",
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 
 # ===================== Helpers =====================
 def reset_state():
-    st.session_state.all_results = []
-    st.session_state.seen_keys = set()
-    st.session_state.df = pd.DataFrame()
-    st.session_state.sources_list = []
-    st.session_state.selected_sources = []
-    st.session_state.has_fetched = False
+    for k, v in defaults.items():
+        if k not in ("keywords",):   # preserve user's keyword list
+            st.session_state[k] = v if not isinstance(v, (set, list, dict)) else type(v)()
+    st.session_state["df"] = pd.DataFrame()
 
 def normalize_publisher(pub):
-    # gnews sometimes returns dict
     if isinstance(pub, dict):
         return pub.get("title") or pub.get("name") or ""
     return "" if pub is None else str(pub)
 
 def add_results(results, query: str, lang_label: str):
     for item in results:
-        title = (item.get("title") or "").strip()
-        desc = (item.get("description") or "").strip()
-        url = (item.get("url") or "").strip()
+        title     = (item.get("title") or "").strip()
+        desc      = (item.get("description") or "").strip()
+        url       = (item.get("url") or "").strip()
         publisher = normalize_publisher(item.get("publisher"))
         published = item.get("published date")
 
-        # Unique key
         key = f"{title}||{publisher}||{url}"
         if not title or key in st.session_state.seen_keys:
             continue
         st.session_state.seen_keys.add(key)
 
         st.session_state.all_results.append({
-            "title": title,
-            "desc": desc,
-            "link": url,
-            "media": publisher,
+            "title":     title,
+            "desc":      desc,
+            "link":      url,
+            "media":     publisher,
             "published": "" if published is None else str(published),
-            "query": query,
-            "language": lang_label,
+            "query":     query,
+            "language":  lang_label,
         })
-
         if publisher and publisher not in st.session_state.sources_list:
             st.session_state.sources_list.append(publisher)
 
-def fetch_one_query(query: str, lang_code: str, lang_label: str, days: int, max_results: int):
-    gn = GNews(language=lang_code, country=COUNTRY, period=f"{days}d", max_results=max_results)
+def parse_pub_date(date_str: str):
+    """Try to parse a published date string into a date object."""
+    for fmt in ("%a, %d %b %Y %H:%M:%S %Z", "%Y-%m-%dT%H:%M:%SZ",
+                "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(date_str.strip(), fmt).date()
+        except Exception:
+            pass
+    return None
+
+def fetch_one_query(query: str, lang_code: str, lang_label: str, days: int):
+    gn = GNews(
+        language=lang_code,
+        country=COUNTRY,
+        period=f"{days}d",
+        max_results=MAX_RESULTS_PER_QUERY,
+    )
     results = gn.get_news(query) or []
     add_results(results, query=query, lang_label=lang_label)
 
 
-# ===================== UI =====================
-st.subheader("Fixed Search Filters")
+# ===================== Sidebar — Keyword Manager =====================
+with st.sidebar:
+    st.header("🔍 Search Keywords")
+    st.caption("Add or remove keywords. These are searched across EN / HI / MR.")
 
-colA, colB = st.columns([3, 2])
-with colA:
-    st.info(
-        "Runs fixed queries × 3 languages (EN/HI/MR), Country = India.\n"
-        "Sentiment: English only (TextBlob). Hindi/Marathi => Non."
-    )
-with colB:
-    if st.button("♻️ Reset"):
-        reset_state()
+    # Show existing keywords as removable tags
+    kw_to_remove = None
+    for kw in st.session_state.keywords:
+        col1, col2 = st.columns([4, 1])
+        col1.markdown(f"<span class='keyword-tag'>{kw}</span>", unsafe_allow_html=True)
+        if col2.button("✕", key=f"rm_{kw}"):
+            kw_to_remove = kw
+    if kw_to_remove:
+        st.session_state.keywords.remove(kw_to_remove)
         st.rerun()
 
-days = st.slider("Select day range (past N days)", 1, 30, 2, 1)
-max_results = st.slider("Max results per query (per language)", 5, 30, 10, 5)
+    new_kw = st.text_input("Add keyword / phrase", placeholder="e.g. Yogi Adityanath")
+    if st.button("➕ Add Keyword") and new_kw.strip():
+        kw_clean = new_kw.strip()
+        if kw_clean not in st.session_state.keywords:
+            st.session_state.keywords.append(kw_clean)
+        st.rerun()
 
-run_btn = st.button("🚀 Fetch News", type="primary")
+    st.divider()
+    st.caption("📌 Languages: English · Hindi · Marathi  |  Country: India")
+
+
+# ===================== Main — Filters =====================
+st.subheader("Date Range & Fetch")
+
+col1, col2, col3 = st.columns([2, 2, 2])
+with col1:
+    from_date = st.date_input(
+        "From date",
+        value=date.today() - timedelta(days=7),
+        max_value=date.today(),
+    )
+with col2:
+    to_date = st.date_input(
+        "To date",
+        value=date.today(),
+        min_value=from_date,
+        max_value=date.today(),
+    )
+with col3:
+    st.write("")   # spacer
+    st.write("")
+    fetch_btn = st.button("🚀 Fetch News", type="primary", use_container_width=True)
+
+# Compute days span for GNews period param
+days_span = max(1, (to_date - from_date).days + 1)
+# GNews period goes back N days from today, so we use days from today → from_date
+days_from_today = max(1, (date.today() - from_date).days + 1)
 
 
 # ===================== Fetch Runner =====================
-if run_btn:
-    reset_state()
-    st.session_state.has_fetched = True
+if fetch_btn:
+    if not st.session_state.keywords:
+        st.error("Please add at least one keyword in the sidebar.")
+    else:
+        reset_state()
+        st.session_state.has_fetched = True
 
-    total_steps = len(FIXED_QUERIES) * len(LANGS)
-    progress = st.progress(0)
-    status = st.empty()
+        total_steps = len(st.session_state.keywords) * len(LANGS)
+        progress = st.progress(0)
+        status   = st.empty()
+        step     = 0
 
-    step = 0
-    with st.spinner("Fetching news across all queries & languages..."):
-        for q in FIXED_QUERIES:
-            for (lang_label, lang_code) in LANGS:
-                step += 1
-                status.write(f"🔎 [{step}/{total_steps}] {lang_label}: {q}")
-                try:
-                    fetch_one_query(q, lang_code=lang_code, lang_label=lang_label, days=days, max_results=max_results)
-                except Exception as e:
-                    st.warning(f"Failed for '{q}' ({lang_label}): {e}")
-                progress.progress(step / total_steps)
-                time.sleep(random.uniform(0.15, 0.35))
+        with st.spinner("Fetching articles across all keywords & languages…"):
+            for q in st.session_state.keywords:
+                for (lang_label, lang_code) in LANGS:
+                    step += 1
+                    status.write(f"🔎 [{step}/{total_steps}]  {lang_label}  →  **{q}**")
+                    try:
+                        fetch_one_query(q, lang_code=lang_code, lang_label=lang_label, days=days_from_today)
+                    except Exception as e:
+                        st.warning(f"Failed for '{q}' ({lang_label}): {e}")
+                    progress.progress(step / total_steps)
+                    time.sleep(random.uniform(0.15, 0.35))
 
-    st.session_state.df = pd.DataFrame(st.session_state.all_results)
-    if not st.session_state.df.empty:
-        st.session_state.df = st.session_state.df.drop_duplicates(subset=["title", "media", "link"]).reset_index(drop=True)
+        status.empty()
+        progress.empty()
+
+        st.session_state.df = pd.DataFrame(st.session_state.all_results)
+        if not st.session_state.df.empty:
+            st.session_state.df = (
+                st.session_state.df
+                .drop_duplicates(subset=["title", "media", "link"])
+                .reset_index(drop=True)
+            )
 
 
 # ===================== Display =====================
 if not st.session_state.df.empty:
     display_df = st.session_state.df.copy()
 
-    # Source filter
+    # ── Date range filter ──────────────────────────────────────────
+    display_df["pub_date"] = display_df["published"].apply(parse_pub_date)
+
+    # Filter rows that have a parseable date within the selected range
+    has_date_mask = display_df["pub_date"].notna()
+    in_range_mask = (
+        display_df["pub_date"].ge(from_date) &
+        display_df["pub_date"].le(to_date)
+    )
+    # Keep articles within range OR those with unparseable dates (don't silently drop them)
+    display_df = display_df[~has_date_mask | in_range_mask].copy()
+
+    # ── Source filter ──────────────────────────────────────────────
     st.subheader("Filter by Source")
     st.session_state.selected_sources = st.multiselect(
-        "Select news sources to display",
+        "Select news sources to display (leave blank for all)",
         options=sorted(st.session_state.sources_list),
         default=[],
     )
     if st.session_state.selected_sources:
         display_df = display_df[display_df["media"].isin(st.session_state.selected_sources)].copy()
 
-    # Sentiment:
-    # English -> TextBlob
-    # Hindi/Marathi -> Non
-    display_df["polarity"] = None
+    # ── Sentiment ─────────────────────────────────────────────────
+    display_df["polarity"]  = None
     display_df["sentiment"] = "Non"
 
     mask_en = display_df["language"].eq("English")
-    # Use title + desc (better than desc alone)
-    display_df.loc[mask_en, "polarity"] = (display_df.loc[mask_en, "title"].fillna("") + ". " + display_df.loc[mask_en, "desc"].fillna("")).apply(
-        lambda x: TextBlob(str(x)).sentiment.polarity
-    )
+    display_df.loc[mask_en, "polarity"] = (
+        display_df.loc[mask_en, "title"].fillna("") + ". " +
+        display_df.loc[mask_en, "desc"].fillna("")
+    ).apply(lambda x: TextBlob(str(x)).sentiment.polarity)
+
     display_df.loc[mask_en, "sentiment"] = display_df.loc[mask_en, "polarity"].apply(
         lambda x: "Positive" if x > 0 else ("Negative" if x < 0 else "Neutral")
     )
 
-    sentiment_colors = {"Positive": "green", "Negative": "red", "Neutral": "gray", "Non": "#607D8B"}
+    sentiment_colors = {
+        "Positive": "#2E7D32",
+        "Negative": "#C62828",
+        "Neutral":  "#546E7A",
+        "Non":      "#6D4C41",
+    }
 
-    st.success(f"Showing {len(display_df)} articles (past {days} days).")
-
-    # Table
-    df_display = display_df[
-        ["title", "media", "published", "language", "query", "desc", "link", "sentiment"]
-    ].copy()
-
-    df_display["Sentiment"] = df_display["sentiment"].apply(
-        lambda x: f"<span style='color:{sentiment_colors.get(x, 'black')};font-weight:600'>{x}</span>"
-    )
-    df_display["Title"] = df_display.apply(
-        lambda row: f"<a href='{row['link']}' target='_blank'>{row['title']}</a>" if row["link"] else row["title"],
-        axis=1
+    total_count = len(display_df)
+    st.success(
+        f"**{total_count}** articles found  |  "
+        f"Date range: {from_date.strftime('%d %b %Y')} → {to_date.strftime('%d %b %Y')}"
     )
 
-    df_display = df_display.rename(
-        columns={
-            "media": "Source",
-            "language": "Language",
-            "query": "Matched Query",
-            "desc": "Description",
-            "published": "Published",
-        }
+    # ── Pagination ────────────────────────────────────────────────
+    PAGE_SIZE = 50
+    total_pages = max(1, (total_count - 1) // PAGE_SIZE + 1)
+    page = st.number_input(
+        f"Page (1 – {total_pages})", min_value=1, max_value=total_pages, value=1, step=1
+    )
+    page_df = display_df.iloc[(page - 1) * PAGE_SIZE : page * PAGE_SIZE].copy()
+
+    # ── Build HTML table ──────────────────────────────────────────
+    page_df["Sentiment_html"] = page_df["sentiment"].apply(
+        lambda x: f"<span style='color:{sentiment_colors.get(x,'black')};font-weight:600'>{x}</span>"
+    )
+    page_df["Title_html"] = page_df.apply(
+        lambda row: (
+            f"<a href='{row['link']}' target='_blank'>{row['title']}</a>"
+            if row["link"] else row["title"]
+        ),
+        axis=1,
     )
 
-    df_display = df_display[
-        ["Title", "Source", "Published", "Language", "Matched Query", "Description", "Sentiment"]
-    ]
+    table_df = page_df[[
+        "Title_html", "media", "published", "language", "query", "desc", "Sentiment_html"
+    ]].rename(columns={
+        "Title_html":    "Title",
+        "media":         "Source",
+        "published":     "Published",
+        "language":      "Language",
+        "query":         "Keyword",
+        "desc":          "Description",
+        "Sentiment_html": "Sentiment",
+    })
 
-    st.subheader("Search Results (All-in-One)")
-    st.markdown(df_display.to_html(escape=False, index=False, classes="news-table"), unsafe_allow_html=True)
+    st.subheader(f"Search Results — Page {page} of {total_pages}")
+    st.markdown(
+        table_df.to_html(escape=False, index=False, classes="news-table"),
+        unsafe_allow_html=True,
+    )
 
-    # CSV download
-    download_df = display_df[
-        ["title", "media", "published", "language", "query", "desc", "link", "sentiment"]
-    ].copy().rename(columns={
-        "title": "Title",
-        "media": "Source",
+    # ── CSV download (full filtered set) ─────────────────────────
+    download_df = display_df[[
+        "title", "media", "published", "language", "query", "desc", "link", "sentiment"
+    ]].copy().rename(columns={
+        "title":     "Title",
+        "media":     "Source",
         "published": "Published",
-        "language": "Language",
-        "query": "Matched Query",
-        "desc": "Description",
-        "link": "URL",
+        "language":  "Language",
+        "query":     "Keyword",
+        "desc":      "Description",
+        "link":      "URL",
         "sentiment": "Sentiment",
     })
 
     csv_bytes = download_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        label="📥 Download Results as CSV",
+        label="📥 Download All Results as CSV",
         data=csv_bytes,
-        file_name=f"dharavi_news_{days}d_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        file_name=(
+            f"news_{from_date.strftime('%Y%m%d')}_to_{to_date.strftime('%Y%m%d')}"
+            f"_{datetime.now().strftime('%H%M')}.csv"
+        ),
         mime="text/csv",
         key="download-csv",
     )
 
-    # ===================== Charts (END OF PAGE) =====================
+    # ── Charts ────────────────────────────────────────────────────
     st.subheader("Overall Tone Summary")
 
-    counts = display_df["sentiment"].value_counts().reindex(["Positive", "Neutral", "Negative", "Non"], fill_value=0)
-    total_articles = len(display_df)
+    counts = display_df["sentiment"].value_counts().reindex(
+        ["Positive", "Neutral", "Negative", "Non"], fill_value=0
+    )
 
     metric_html = f"""
     <div class="metrics-container">
@@ -307,23 +419,59 @@ if not st.session_state.df.empty:
             <div class="metric-label">Non (HI/MR)</div>
         </div>
         <div class="metric-box metric-total">
-            <div class="metric-value">{int(total_articles)}</div>
+            <div class="metric-value">{total_count}</div>
             <div class="metric-label">Total Articles</div>
         </div>
     </div>
     """
     st.markdown(metric_html, unsafe_allow_html=True)
 
-    pie_fig = px.pie(
-        names=counts.index,
-        values=counts.values,
-        title="Overall Sentiment Distribution",
-        hole=0.55,
-    )
-    pie_fig.update_traces(textinfo="percent")
-    st.plotly_chart(pie_fig, use_container_width=True)
+    col_pie, col_bar = st.columns(2)
+
+    with col_pie:
+        pie_fig = px.pie(
+            names=counts.index,
+            values=counts.values,
+            title="Sentiment Distribution",
+            hole=0.55,
+            color=counts.index,
+            color_discrete_map={
+                "Positive": "#43A047",
+                "Neutral":  "#78909C",
+                "Negative": "#E53935",
+                "Non":      "#8D6E63",
+            },
+        )
+        pie_fig.update_traces(textinfo="percent+label")
+        st.plotly_chart(pie_fig, use_container_width=True)
+
+    with col_bar:
+        lang_counts = display_df["language"].value_counts().reset_index()
+        lang_counts.columns = ["Language", "Count"]
+        bar_fig = px.bar(
+            lang_counts,
+            x="Language",
+            y="Count",
+            title="Articles by Language",
+            color="Language",
+            color_discrete_sequence=["#1565C0", "#E65100", "#2E7D32"],
+        )
+        bar_fig.update_layout(showlegend=False)
+        st.plotly_chart(bar_fig, use_container_width=True)
+
+    # Keyword breakdown
+    if len(st.session_state.keywords) > 1:
+        kw_counts = display_df["query"].value_counts().reset_index()
+        kw_counts.columns = ["Keyword", "Count"]
+        kw_fig = px.bar(
+            kw_counts, x="Keyword", y="Count",
+            title="Articles per Keyword",
+            color="Count",
+            color_continuous_scale="Blues",
+        )
+        st.plotly_chart(kw_fig, use_container_width=True)
 
 elif st.session_state.has_fetched:
-    st.warning("No articles found for the selected filters.")
+    st.warning("No articles found for the selected filters and date range.")
 else:
-    st.info("Select day range and click **Fetch News**.")
+    st.info("👈 Add keywords in the sidebar, set your date range above, then click **Fetch News**.")
