@@ -15,7 +15,7 @@ nltk.download("wordnet", quiet=True)
 nltk.download("averaged_perceptron_tagger", quiet=True)
 nltk.download("conll2000", quiet=True)
 nltk.download("movie_reviews", quiet=True)
-st.set_page_config(page_title="Akar News Search & Analysis", layout="wide")
+st.set_page_config(page_title="UP News Search & Analysis", layout="wide")
 
 # ===================== Custom CSS =====================
 st.markdown(
@@ -71,7 +71,7 @@ st.markdown(
 st.markdown(
     """
     <h2 style='text-align:center;color:#fff;background:#262730;padding:10px;border-radius:10px;'>
-    📰 Urban Baatein News Search and Analysis Portal
+    📰 UP News Search and Analysis Portal
     </h2>
     """,
     unsafe_allow_html=True,
@@ -79,27 +79,7 @@ st.markdown(
 
 # ===================== Fixed Queries =====================
 FIXED_QUERIES = [
-    "urban development",
-"city planning",
-"slum rehabilitation",
-"informal settlements",
-"affordable housing",
-"urban transport",
-"public transport",
-"transit oriented development",
-"infrastructure development India",
-"smart cities mission",
-"industrial corridor",
-"MOHUA",
-"15 minute city",
-"mixed use development",
-"urban logistics",
-"smart mobility",
-"sustainable cities",
-"climate resilient cities",
-"urban heat island",
-"Urban inequality",
-"Housing right",
+    "Akhilesh Yadav",
 ]
 
 # Fixed: India + 3 languages
