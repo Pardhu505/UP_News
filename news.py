@@ -28,48 +28,62 @@ st.markdown(
         padding: 3px 12px; margin: 3px; font-size: 13px; font-weight: 600;
     }
 
+    /* ── Table wrapper — outer border ── */
+    .tbl-wrap {
+        border: 1.5px solid #b0c4de;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 8px;
+    }
+
     /* ── Table header row ── */
     .tbl-header {
         display: grid;
-        grid-template-columns: 38px 40px 3fr 1.1fr 1.1fr 0.8fr 0.8fr 1.6fr 130px;
+        grid-template-columns: 38px 40px 3fr 1.1fr 1.3fr 0.8fr 0.9fr 1.5fr;
         background: linear-gradient(90deg, #1565C0, #0288D1);
         color: #fff; font-weight: 700; font-size: 12.5px;
-        padding: 9px 6px; border-radius: 8px 8px 0 0;
         letter-spacing: 0.03em;
         align-items: center;
+        border-bottom: 2px solid #0d47a1;
     }
-    .tbl-header > div { padding: 0 4px; }
-
-    /* ── Data rows ── */
-    .tbl-row {
-        display: grid;
-        grid-template-columns: 38px 40px 3fr 1.1fr 1.1fr 0.8fr 0.8fr 1.6fr 130px;
-        border-bottom: 1px solid #e8edf2;
-        align-items: start;
-        padding: 0;
-        font-size: 13px;
+    .tbl-header > div {
+        padding: 10px 8px;
+        border-right: 1px solid rgba(255,255,255,0.25);
+        text-align: center;
     }
-    .tbl-row:nth-child(even) { background: #f7f9fc; }
-    .tbl-row:hover           { background: #eaf1fb; }
+    .tbl-header > div:last-child { border-right: none; }
 
+    /* ── Streamlit column rows — borders via adjacent divs ── */
+    /* Each row rendered with st.columns gets a bottom border */
+    div[data-testid="stHorizontalBlock"].tbl-data-row {
+        border-bottom: 1px solid #dce6f0 !important;
+    }
+
+    /* Cell style applied to inner markdown divs */
     .tbl-cell {
-        padding: 9px 6px;
-        vertical-align: top;
+        padding: 9px 8px;
+        min-height: 48px;
+        display: flex;
+        align-items: center;        /* vertical middle */
         word-break: break-word;
         line-height: 1.45;
+        border-right: 1px solid #dce6f0;
+        height: 100%;
+        box-sizing: border-box;
     }
-    .tbl-title a {
-        color: #1565C0; font-weight: 600; text-decoration: none;
-    }
-    .tbl-title a:hover { text-decoration: underline; }
-    .tbl-desc  { color: #555; font-size: 12px; }
+    .tbl-cell:last-child { border-right: none; }
 
-    /* Collapse Streamlit widget chrome inside table cells */
-    .tbl-widget div[data-testid="stCheckbox"]  { margin: 0; padding: 0; }
-    .tbl-widget div[data-testid="stSelectbox"] { margin: 0; padding: 0; }
-    .tbl-widget div[data-testid="stSelectbox"] > label { display: none; }
-    .tbl-widget div[data-testid="stSelectbox"] > div   { margin-top: 0 !important; }
-    .tbl-widget .stSelectbox select { font-size: 12px; padding: 3px 6px; }
+    /* Title cell keeps top-align since it can be multi-line */
+    .tbl-cell-title {
+        padding: 9px 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        word-break: break-word;
+        line-height: 1.45;
+        border-right: 1px solid #dce6f0;
+        box-sizing: border-box;
+    }
 
     /* Overall tone metrics */
     .metrics-container {
@@ -90,8 +104,21 @@ st.markdown(
 
     /* Remove default Streamlit column gap so grid columns touch */
     div[data-testid="stHorizontalBlock"] { gap: 0 !important; }
-    /* Remove extra padding around column containers in table rows */
-    .row-widget div[data-testid="column"] { padding: 0 !important; }
+    /* Remove padding from column containers inside table rows */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        padding: 0 !important;
+        border-right: 1px solid #dce6f0;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+        border-right: none;
+    }
+    /* Ensure even row striping via row wrapper */
+    .tbl-even-row > div[data-testid="stHorizontalBlock"] { background: #f7f9fc; }
+    .tbl-odd-row  > div[data-testid="stHorizontalBlock"] { background: #ffffff; }
+    /* Checkbox centering */
+    div[data-testid="stCheckbox"] { display:flex; justify-content:center; align-items:center; padding: 8px 0; }
+    /* Selectbox spacing reset */
+    div[data-testid="stSelectbox"] { margin-top: 4px !important; margin-bottom: 2px !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -300,23 +327,23 @@ if not st.session_state.df.empty:
 
     # ── TABLE HEADER (pure HTML) ──────────────────────────────────
     st.markdown("""
+    <div class="tbl-wrap">
     <div class="tbl-header">
-      <div>✓</div>
-      <div>#</div>
+      <div style="text-align:center;">✓</div>
+      <div style="text-align:center;">#</div>
       <div>Title &amp; Description</div>
-      <div>Source</div>
-      <div>Published</div>
-      <div>Language</div>
-      <div>Keyword</div>
-      <div>Sentiment</div>
-      <div></div>
+      <div style="text-align:center;">Source</div>
+      <div style="text-align:center;">Published</div>
+      <div style="text-align:center;">Language</div>
+      <div style="text-align:center;">Keyword</div>
+      <div style="text-align:center;">Sentiment</div>
+    </div>
     </div>
     """, unsafe_allow_html=True)
 
     # ── TABLE ROWS (one st.columns per row) ───────────────────────
-    # Column proportions mirror the CSS grid:
-    # ✓ | # | Title+Desc | Source | Published | Lang | Keyword | Sent-dropdown | (filler)
-    COL_WIDTHS = [0.4, 0.4, 3.2, 1.1, 1.2, 0.8, 0.9, 1.4]
+    # ✓ | # | Title+Desc | Source | Published | Lang | Keyword | Sent-dropdown
+    COL_WIDTHS = [0.4, 0.4, 3.2, 1.1, 1.3, 0.8, 0.9, 1.5]
 
     for row_num, idx in enumerate(page_indices):
         row = df.loc[idx]
@@ -326,81 +353,92 @@ if not st.session_state.df.empty:
         if idx not in st.session_state.selected_articles:
             st.session_state.selected_articles[idx] = False
 
-        # Alternate row background via a wrapping div
+        # Alternating row background
         bg = "#f7f9fc" if row_num % 2 == 0 else "#ffffff"
+        border_style = "border-bottom:1px solid #dce6f0; border-left:1.5px solid #b0c4de; border-right:1.5px solid #b0c4de;"
+        if row_num == len(page_indices) - 1:
+            border_style += "border-bottom:1.5px solid #b0c4de;"
+
         st.markdown(
-            f"<div style='background:{bg};border-bottom:1px solid #e8edf2;'></div>",
+            f"<div style='background:{bg};{border_style}'></div>",
             unsafe_allow_html=True,
         )
 
         cols = st.columns(COL_WIDTHS)
 
-        # ① Checkbox
+        # ① Checkbox — centred
         with cols[0]:
+            st.markdown(f"<div style='background:{bg};height:100%;'></div>", unsafe_allow_html=True)
             checked = st.checkbox(
                 "", value=st.session_state.selected_articles.get(idx, False),
                 key=f"chk_{idx}", label_visibility="collapsed"
             )
             st.session_state.selected_articles[idx] = checked
 
-        # ② Row number
+        # ② Row number — centred
         with cols[1]:
             st.markdown(
-                f"<div style='padding:8px 4px;font-size:12px;color:#888;'>"
+                f"<div class='tbl-cell' style='background:{bg};justify-content:center;"
+                f"font-size:12px;color:#888;'>"
                 f"{(page-1)*PAGE_SIZE + row_num + 1}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ③ Title + Description
+        # ③ Title + Description — left aligned, vertically centred
         with cols[2]:
             title_html = (
                 f"<a href='{row['link']}' target='_blank' "
                 f"style='color:#1565C0;font-weight:600;font-size:13.5px;"
-                f"text-decoration:none;'>{row['title']}</a>"
+                f"text-decoration:none;line-height:1.4;'>{row['title']}</a>"
                 if row["link"] else
                 f"<span style='font-weight:600;font-size:13.5px;'>{row['title']}</span>"
             )
             desc_html = (
-                f"<div style='color:#555;font-size:12px;margin-top:4px;line-height:1.4;'>"
+                f"<div style='color:#555;font-size:12px;margin-top:5px;line-height:1.4;'>"
                 f"{row['desc']}</div>"
                 if row["desc"] else ""
             )
             st.markdown(
-                f"<div style='padding:8px 4px;'>{title_html}{desc_html}</div>",
+                f"<div class='tbl-cell-title' style='background:{bg};'>"
+                f"{title_html}{desc_html}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ④ Source
+        # ④ Source — centred
         with cols[3]:
             st.markdown(
-                f"<div style='padding:8px 4px;font-size:12.5px;color:#333;'>{row['media']}</div>",
+                f"<div class='tbl-cell' style='background:{bg};justify-content:center;"
+                f"font-size:12.5px;color:#333;text-align:center;'>{row['media']}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ⑤ Published
+        # ⑤ Published — centred
         with cols[4]:
             st.markdown(
-                f"<div style='padding:8px 4px;font-size:12px;color:#555;'>{row['published']}</div>",
+                f"<div class='tbl-cell' style='background:{bg};justify-content:center;"
+                f"font-size:12px;color:#555;text-align:center;'>{row['published']}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ⑥ Language
+        # ⑥ Language — centred + coloured
         with cols[5]:
-            lang_color = {"English": "#1565C0", "Hindi": "#E65100", "Marathi": "#2E7D32"}.get(row["language"], "#333")
+            lang_color = {"English":"#1565C0","Hindi":"#E65100","Marathi":"#2E7D32"}.get(row["language"],"#333")
             st.markdown(
-                f"<div style='padding:8px 4px;font-size:12px;font-weight:600;color:{lang_color};'>"
+                f"<div class='tbl-cell' style='background:{bg};justify-content:center;"
+                f"font-size:12px;font-weight:600;color:{lang_color};text-align:center;'>"
                 f"{row['language']}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ⑦ Keyword
+        # ⑦ Keyword — centred
         with cols[6]:
             st.markdown(
-                f"<div style='padding:8px 4px;font-size:12px;color:#555;'>{row['query']}</div>",
+                f"<div class='tbl-cell' style='background:{bg};justify-content:center;"
+                f"font-size:12px;color:#555;text-align:center;'>{row['query']}</div>",
                 unsafe_allow_html=True,
             )
 
-        # ⑧ Sentiment dropdown
+        # ⑧ Sentiment dropdown — centred
         with cols[7]:
             cur = st.session_state.sentiments.get(idx, "—")
             new_sent = st.selectbox(
@@ -417,8 +455,12 @@ if not st.session_state.df.empty:
                     unsafe_allow_html=True,
                 )
 
-    # Bottom border close
-    st.markdown("<hr style='margin:0;border-color:#e8edf2;'>", unsafe_allow_html=True)
+    # Bottom border of table
+    st.markdown(
+        "<div style='border:1.5px solid #b0c4de;border-top:none;"
+        "border-radius:0 0 8px 8px;height:4px;margin-bottom:12px;'></div>",
+        unsafe_allow_html=True,
+    )
 
     # ── Sync sentiment & selection ────────────────────────────────
     df["sentiment"] = df.index.map(lambda i: st.session_state.sentiments.get(i, "—"))
