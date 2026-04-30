@@ -28,6 +28,17 @@ st.markdown(
         padding: 3px 12px; margin: 3px; font-size: 13px; font-weight: 600;
     }
 
+    /* ── Manual entry hint banner ── */
+    .manual-hint {
+        background: #fff8e1;
+        border-left: 4px solid #FFA000;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #5D4037;
+        margin-bottom: 8px;
+    }
+
     /* ── Table wrapper — outer border ── */
     .tbl-wrap {
         border: 1.5px solid #b0c4de;
@@ -84,6 +95,20 @@ st.markdown(
         box-sizing: border-box;
     }
 
+    /* "Manual" badge for custom articles */
+    .manual-badge {
+        display: inline-block;
+        background: #FFE0B2;
+        color: #E65100;
+        font-size: 9px;
+        font-weight: 700;
+        padding: 1px 6px;
+        border-radius: 8px;
+        margin-left: 6px;
+        vertical-align: middle;
+        letter-spacing: 0.04em;
+    }
+
     /* Overall tone metrics */
     .metrics-container {
         display: flex; justify-content: space-between;
@@ -133,8 +158,6 @@ SENTIMENT_COLORS  = {"Positive": "#2E7D32", "Negative": "#C62828",
                      "Neutral": "#546E7A", "—": "#9E9E9E"}
 
 # ===================== Predefined Categories =====================
-# Used by the "Trending Topics" content-based classifier.
-# Each category has English + Hindi + Marathi trigger keywords.
 CATEGORY_KEYWORDS = {
     "Politics & Governance": [
         "bjp", "congress", "samajwadi", "bsp", "aap", "rld", "shiv sena",
@@ -266,6 +289,7 @@ def _init():
         "sources_list": [], "selected_sources": [], "has_fetched": False,
         "keywords": ["Akhilesh Yadav"],
         "sentiments": {}, "selected_articles": {}, "summary_text": "",
+        "manual_keys": set(),  # tracks which articles came from manual entry
     }
     for k, v in defs.items():
         if k not in st.session_state:
@@ -286,6 +310,7 @@ def reset_state():
     for k in ["sentiments", "selected_articles"]:
         st.session_state[k] = {}
     st.session_state["seen_keys"]    = set()
+    st.session_state["manual_keys"]  = set()
     st.session_state["df"]           = pd.DataFrame()
     st.session_state["has_fetched"]  = False
     st.session_state["summary_text"] = ""
@@ -365,6 +390,131 @@ def claude_summary(articles_df):
         return f"Error: {e}"
 
 
+# ===================== Manual Article Entry Dialog =====================
+@st.dialog("📝 Manual Article Entry", width="large")
+def manual_article_dialog():
+    st.markdown(
+        "<div class='manual-hint'>ℹ️ Add an article manually to the analysis table. "
+        "Manual entries appear alongside fetched articles with a <b>MANUAL</b> badge. "
+        "They will be cleared if you click <b>Fetch News</b> again.</div>",
+        unsafe_allow_html=True,
+    )
+
+    title = st.text_input(
+        "Article Title *",
+        placeholder="Enter the article headline",
+        key="ma_title",
+    )
+    url = st.text_input(
+        "Article URL",
+        placeholder="https://example.com/article",
+        key="ma_url",
+    )
+    source = st.text_input(
+        "News Source Name *",
+        placeholder="e.g. Times of India, Hindustan Times, Dainik Jagran",
+        key="ma_source",
+    )
+
+    cd1, cd2 = st.columns(2)
+    with cd1:
+        pub_date = st.date_input(
+            "Publication Date",
+            value=date.today(),
+            max_value=date.today(),
+            key="ma_date",
+        )
+    with cd2:
+        language = st.selectbox(
+            "Language",
+            options=["English", "Hindi", "Marathi"],
+            index=0,
+            key="ma_lang",
+        )
+
+    keyword_options = list(st.session_state.keywords) + ["Manual Entry"]
+    keyword = st.selectbox(
+        "Associated Keyword / Topic",
+        options=keyword_options,
+        index=len(keyword_options) - 1,
+        key="ma_keyword",
+        help="Tag this article with a keyword so it groups with related results.",
+    )
+
+    description = st.text_area(
+        "Description (optional)",
+        placeholder="Brief description, summary, or excerpt from the article…",
+        key="ma_desc",
+        height=80,
+    )
+
+    sentiment = st.selectbox(
+        "Initial Sentiment",
+        options=SENTIMENT_OPTIONS,
+        index=2,  # Default to Neutral
+        key="ma_sent",
+    )
+
+    st.divider()
+    cb1, cb2 = st.columns(2)
+    with cb1:
+        if st.button("✕ Cancel", use_container_width=True, key="ma_cancel_btn"):
+            st.rerun()
+    with cb2:
+        if st.button(
+            "➕ Add to Table", type="primary",
+            use_container_width=True, key="ma_add_btn",
+        ):
+            # Validation
+            if not title.strip():
+                st.error("⚠️ Article Title is required.")
+                return
+            if not source.strip():
+                st.error("⚠️ News Source Name is required.")
+                return
+
+            t, s, u = title.strip(), source.strip(), url.strip()
+            key_check = f"{t}||{s}||{u}"
+            if key_check in st.session_state.seen_keys:
+                st.warning("⚠️ An article with the same title, source, and URL is already in the table.")
+                return
+
+            new_row = {
+                "title": t,
+                "desc": description.strip(),
+                "link": u,
+                "media": s,
+                "published": pub_date.strftime("%Y-%m-%d"),
+                "query": keyword,
+                "language": language,
+            }
+
+            st.session_state.seen_keys.add(key_check)
+            st.session_state.manual_keys.add(key_check)
+            st.session_state.all_results.append(new_row)
+
+            # Rebuild df
+            new_df = pd.DataFrame(st.session_state.all_results)
+            new_df = new_df.drop_duplicates(
+                subset=["title", "media", "link"]
+            ).reset_index(drop=True)
+            st.session_state.df = new_df
+            st.session_state.has_fetched = True
+
+            # The new article is the last row after dedup (it was unique)
+            new_idx = new_df.index[-1]
+            st.session_state.sentiments[new_idx] = sentiment
+            st.session_state.selected_articles[new_idx] = False
+
+            # Track source if new
+            if s not in st.session_state.sources_list:
+                st.session_state.sources_list.append(s)
+
+            st.success(f"✅ Article added: **{t[:70]}{'…' if len(t) > 70 else ''}**")
+            time.sleep(0.7)
+            st.rerun()
+
+
 # ===================== Sidebar =====================
 with st.sidebar:
     st.header("🔍 Search Keywords")
@@ -422,6 +572,19 @@ if fetch_btn:
             st.session_state.selected_articles[idx] = False
 
 
+# ===================== Manual Article Entry Trigger =====================
+st.markdown("")  # spacer
+mc1, mc2, mc3 = st.columns([2, 2, 2])
+with mc2:
+    if st.button(
+        "➕ Add Custom Article",
+        use_container_width=True,
+        key="open-manual-btn",
+        help="Manually enter an article that wasn't picked up by the news search.",
+    ):
+        manual_article_dialog()
+
+
 # ===================== Display =====================
 if not st.session_state.df.empty:
     df = st.session_state.df.copy()
@@ -441,9 +604,17 @@ if not st.session_state.df.empty:
     if st.session_state.selected_sources:
         df = df[df["media"].isin(st.session_state.selected_sources)].copy()
 
+    # Mark manual articles
+    df["is_manual"] = df.apply(
+        lambda r: f"{r['title']}||{r['media']}||{r['link']}" in st.session_state.manual_keys,
+        axis=1,
+    )
+
     total_count = len(df)
+    n_manual = int(df["is_manual"].sum())
+    info_extra = f" · {n_manual} manual" if n_manual > 0 else ""
     st.success(
-        f"**{total_count}** articles  |  "
+        f"**{total_count}** articles{info_extra}  |  "
         f"{from_date.strftime('%d %b %Y')} → {to_date.strftime('%d %b %Y')}"
     )
 
@@ -517,12 +688,13 @@ if not st.session_state.df.empty:
             )
 
         with cols[2]:
+            manual_badge = "<span class='manual-badge'>MANUAL</span>" if row.get("is_manual") else ""
             title_html = (
                 f"<a href='{row['link']}' target='_blank' "
                 f"style='color:#1565C0;font-weight:600;font-size:13.5px;"
-                f"text-decoration:none;line-height:1.4;'>{row['title']}</a>"
+                f"text-decoration:none;line-height:1.4;'>{row['title']}</a>{manual_badge}"
                 if row["link"] else
-                f"<span style='font-weight:600;font-size:13.5px;'>{row['title']}</span>"
+                f"<span style='font-weight:600;font-size:13.5px;'>{row['title']}</span>{manual_badge}"
             )
             desc_html = (
                 f"<div style='color:#555;font-size:12px;margin-top:5px;line-height:1.4;'>"
@@ -666,7 +838,6 @@ if not st.session_state.df.empty:
     labelled = df[df["sentiment"] != "—"]
     pie_col, src_col = st.columns([1, 1])
 
-    # LEFT: Sentiment pie
     with pie_col:
         if not labelled.empty:
             pc = labelled["sentiment"].value_counts().reindex(
@@ -696,7 +867,6 @@ if not st.session_state.df.empty:
         else:
             st.info("Tag articles with a sentiment above to see the distribution chart.")
 
-    # RIGHT: Articles by Source — bar chart with labels on top
     with src_col:
         src_counts = df["media"].value_counts()
         src_counts = src_counts[src_counts.index.astype(str).str.strip() != ""]
@@ -743,7 +913,6 @@ if not st.session_state.df.empty:
     st.subheader("Trending Topics")
     st.caption("Articles classified by analysing title + description content.")
 
-    # Apply categorisation to every article
     df["category"] = df.apply(
         lambda r: categorize_article(r.get("title", ""), r.get("desc", "")),
         axis=1,
@@ -752,7 +921,6 @@ if not st.session_state.df.empty:
     cat_counts = df["category"].value_counts()
 
     if not cat_counts.empty:
-        # Push "Other / Uncategorised" to the end regardless of count
         ordered = cat_counts.drop(labels=["Other / Uncategorised"], errors="ignore")
         cat_df = pd.DataFrame({
             "Category": ordered.index.tolist(),
@@ -798,7 +966,6 @@ if not st.session_state.df.empty:
         )
         st.plotly_chart(trending_fig, use_container_width=True)
 
-        # Audit expander — see which articles fell into each category
         with st.expander("🔍 See articles per category"):
             for cat in cat_df["Category"].tolist():
                 sub = df[df["category"] == cat][
@@ -812,4 +979,7 @@ if not st.session_state.df.empty:
 elif st.session_state.has_fetched:
     st.warning("No articles found for the selected filters and date range.")
 else:
-    st.info("👈 Add keywords in the sidebar, set your date range, then click **Fetch News**.")
+    st.info(
+        "👈 Add keywords in the sidebar, set your date range, then click **Fetch News**. "
+        "You can also click **➕ Add Custom Article** above to enter an article manually."
+    )
